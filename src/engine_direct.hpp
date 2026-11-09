@@ -11,13 +11,17 @@
 
 namespace jpegultrascan::detail {
 
+// past this many tokens (16 MB) a piece of work stops keeping what the first pass of an AC scan
+// would emit, and the second pass walks the blocks again
+inline constexpr std::size_t kMaxTokens = std::size_t{1} << 22;
+
 // engine B: works out the bytes each scan would take the way libjpeg writes it (optimal
 // Huffman tables, DHT and SOS segments, 0xFF stuffing) without encoding anything
 class DirectEngine : public SizeSource {
 public:
     // fails when libjpeg would refuse to encode the source; error() says why. the loop's
     // stop throws Stopped out of the measure functions
-    DirectEngine(const Source& source, int max_bits, Loop loop, VerboseLog* log);
+    DirectEngine(const Source& source, int max_bits, Loop loop, VerboseLog* log, std::size_t max_tokens = kMaxTokens);
 
     bool ok() const { return error_.empty(); }
     // the most the engine allocates for the source, with `pieces` pieces of work at once
@@ -64,6 +68,7 @@ private:
     int max_bits_;
     Loop loop_;
     VerboseLog* log_;
+    std::size_t max_tokens_;
     int max_coef_bits_;
     std::vector<int> dc_tables_;
     std::vector<int> ac_tables_;

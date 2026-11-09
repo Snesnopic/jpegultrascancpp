@@ -1,7 +1,6 @@
 #include "jpegultrascan/jpegultrascan.hpp"
 
 #include <algorithm>
-#include <map>
 
 #include "engine_direct.hpp"
 #include "parallel.hpp"
@@ -24,68 +23,58 @@ SearchOptions search_options_for(const jpeg_decompress_struct& info, const Optio
     return search_options;
 }
 
-namespace {
-
-// passes on what the engine measures and keeps it, so that the search can run again with fewer
-// bits without measuring anything: a scan's size doesn't depend on max_bits
-class Kept : public SizeSource {
-public:
-    Kept(SizeSource& source, int max_bits) : source_(source), max_bits_(max_bits), bits_(max_bits) {}
-
-    // from now on, answer from what was kept as a search with at most `bits` asks
-    void limit(int bits) { bits_ = bits; }
-
-    bool measure_ac(int component, AcSizes& out) override {
-        if (bits_ == max_bits_) {
-            if (!source_.measure_ac(component, out)) return false;
-            ac_.insert_or_assign(component, out);
-            return true;
-        }
-        const AcSizes& all = ac_.at(component);
-        for (int ss = 1; ss <= kMaxCoef; ++ss) {
-            for (int se = ss; se <= kMaxCoef; ++se) {
-                for (int al = 0; al <= bits_; ++al) out.at(ss, se, 0, al) = all.get(ss, se, 0, al);
-                for (int ah = 1; ah <= bits_; ++ah) out.at(ss, se, ah, ah - 1) = all.get(ss, se, ah, ah - 1);
-            }
-        }
+bool Kept::measure_ac(int component, AcSizes& out) {
+    if (bits_ == max_bits_) {
+        if (!source_.measure_ac(component, out)) return false;
+        ac_.insert_or_assign(component, out);
         return true;
     }
-
-    bool measure_dc(const std::vector<int>& components, std::vector<std::uint64_t>& out) override {
-        if (bits_ == max_bits_) {
-            if (!source_.measure_dc(components, out)) return false;
-            dc_.insert_or_assign(components, out);
-            return true;
+    const AcSizes& all = ac_.at(component);
+    for (int ss = 1; ss <= kMaxCoef; ++ss) {
+        for (int se = ss; se <= kMaxCoef; ++se) {
+            for (int al = 0; al <= bits_; ++al) out.at(ss, se, 0, al) = all.get(ss, se, 0, al);
+            for (int ah = 1; ah <= bits_; ++ah) out.at(ss, se, ah, ah - 1) = all.get(ss, se, ah, ah - 1);
         }
-        const std::vector<std::uint64_t>& all = dc_.at(components);
-        const auto at = [](int bits, int ah, int al) { return static_cast<std::size_t>(pass_index(bits, ah, al)); };
-        for (int al = 0; al <= bits_; ++al) out[at(bits_, 0, al)] = all[at(max_bits_, 0, al)];
-        for (int ah = 1; ah <= bits_; ++ah) out[at(bits_, ah, ah - 1)] = all[at(max_bits_, ah, ah - 1)];
+    }
+    return true;
+}
+
+bool Kept::measure_dc(const std::vector<int>& components, std::vector<std::uint64_t>& out) {
+    if (bits_ == max_bits_) {
+        if (!source_.measure_dc(components, out)) return false;
+        dc_.insert_or_assign(components, out);
         return true;
     }
+    const std::vector<std::uint64_t>& all = dc_.at(components);
+    const auto at = [](int bits, int ah, int al) { return static_cast<std::size_t>(pass_index(bits, ah, al)); };
+    for (int al = 0; al <= bits_; ++al) out[at(bits_, 0, al)] = all[at(max_bits_, 0, al)];
+    for (int ah = 1; ah <= bits_; ++ah) out[at(bits_, ah, ah - 1)] = all[at(max_bits_, ah, ah - 1)];
+    return true;
+}
 
-    bool measure_sequential(const std::vector<std::vector<int>>& parts, std::vector<std::uint64_t>& out) override {
-        if (bits_ == max_bits_) {
-            if (!source_.measure_sequential(parts, out)) return false;
-            sequential_.insert_or_assign(parts, out);
-            return true;
-        }
-        out = sequential_.at(parts);
+bool Kept::measure_sequential(const std::vector<std::vector<int>>& parts, std::vector<std::uint64_t>& out) {
+    if (bits_ == max_bits_) {
+        if (!source_.measure_sequential(parts, out)) return false;
+        sequential_.insert_or_assign(parts, out);
         return true;
     }
+    out = sequential_.at(parts);
+    return true;
+}
 
-    const char* error() const override { return source_.error(); }
-
-private:
-    SizeSource& source_;
-    int max_bits_;
-    int bits_;
-    std::map<int, AcSizes> ac_;
-    std::map<std::vector<int>, std::vector<std::uint64_t>> dc_;
-    std::map<std::vector<std::vector<int>>, std::vector<std::uint64_t>> sequential_;
-};
-
-}  // namespace
+std::optional<SearchResult> search_within(SizeSource& source, int num_components, const SearchOptions& options,
+                                          std::size_t max_scans, std::string& error) {
+    Kept kept(source, options.max_bits);
+    auto found = search(kept, num_components, options, error);
+    for (int bits = options.max_bits - 1; found && found->scans.size() > max_scans && bits >= 0; --bits) {
+        kept.limit(bits);
+        SearchOptions fewer = options;
+        fewer.max_bits = bits;
+        fewer.log = nullptr;
+        found = search(kept, num_components, fewer, error);
+    }
+    return found;
+}
 
 ScriptResult find_best_script(const Source& source, const Options& options, VerboseLog* log, std::size_t max_scans) {
     ScriptResult result;
@@ -97,16 +86,7 @@ ScriptResult find_best_script(const Source& source, const Options& options, Verb
             result.error = engine.error();
             return result;
         }
-        Kept kept(engine, search_options.max_bits);
-        const int n = source.info->num_components;
-        auto found = search(kept, n, search_options, result.error);
-        for (int bits = search_options.max_bits - 1; found && found->scans.size() > max_scans && bits >= 0; --bits) {
-            kept.limit(bits);
-            SearchOptions fewer = search_options;
-            fewer.max_bits = bits;
-            fewer.log = nullptr;
-            found = search(kept, n, fewer, result.error);
-        }
+        auto found = search_within(engine, source.info->num_components, search_options, max_scans, result.error);
         if (!found) {
             // the engine fails on what libjpeg wouldn't encode
             result.status = engine.ok() ? Status::Error : Status::Unsupported;
@@ -185,12 +165,21 @@ Result optimize(std::span<const std::uint8_t> jpeg, const Options& options, Mark
             result.error = "mozjpeg can't encode more than " + std::to_string(detail::kMaxScans) + " scans";
             return result;
         }
+        // encoding and checking take seconds on a very large image
+        const auto stopped = [&] {
+            if (!options.stop_requested || !options.stop_requested()) return false;
+            result = {};
+            result.status = Status::Interrupted;
+            return true;
+        };
+        if (stopped()) return result;
         result.status = Status::Error;
         const detail::Markers mode = markers == Markers::Keep ? detail::Markers::Keep : detail::Markers::Jpegtran;
         if (!detail::encode(source.source(), result.script.scans, mode, result.data, result.error)) {
             result.data.clear();
             return result;
         }
+        if (stopped()) return result;
         detail::Decoder check;
         if (!check.read(result.data, true)) {
             result.error = "output doesn't decode: " + check.error();

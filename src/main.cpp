@@ -18,8 +18,8 @@ using namespace jpegultrascan;
 using namespace jpegultrascan::detail;
 
 void usage() {
-    std::fputs("jpegultrascan " JPEGULTRASCAN_VERSION "\n"
-               "usage: jpegultrascan [options] input.jpg output.jpg\n"
+    std::fputs("jpegultrascancpp " JPEGULTRASCAN_VERSION "\n"
+               "usage: jpegultrascancpp [options] input.jpg output.jpg\n"
                "  -b N               most successive-approximation bits per band (default: as many as\n"
                "                     libjpeg allows, 10 for 8-bit images; jpegultrascan.pl's is 3)\n"
                "  -t N               threads, 0 for half the cores (default 0)\n"
@@ -234,7 +234,7 @@ int main(int argc, char** argv) {  // NOLINT(misc-const-correctness): the signat
     try {
         return run(argc, argv);
     } catch (const std::exception& e) {
-        std::fprintf(stderr, "jpegultrascan: %s\n", e.what());
+        std::fprintf(stderr, "jpegultrascancpp: %s\n", e.what());
         return 1;
     }
 }

@@ -201,14 +201,12 @@ struct Emit {
 };
 
 // the first pass of an AC scan, keeping what the second would emit: a symbol with its extra
-// bits (symbol, how many and the bits from bit 0, 8 and 13), or bits alone (bit 31 set). past
-// kMaxTokens it only counts, and the second pass walks the blocks again
-constexpr std::size_t kMaxTokens = std::size_t{1} << 22;
-
+// bits (symbol, how many and the bits from bit 0, 8 and 13), or bits alone (bit 31 set)
 struct Record {
     static constexpr bool kBits = true;
     Counts counts{};
-    std::vector<std::uint32_t>* tokens = nullptr;
+    std::uint32_t* next = nullptr;
+    std::uint32_t* end = nullptr;
     bool kept = true;
     void ac_symbol(int, int s, std::uint32_t v = 0, int n = 0) {
         ++counts[static_cast<std::size_t>(s)];
@@ -216,12 +214,11 @@ struct Record {
     }
     void bits(std::uint32_t v, int n) { keep(std::uint32_t{1} << 31, v, n); }
     void keep(std::uint32_t head, std::uint32_t v, int n) {
-        if (!kept) return;
-        if (tokens->size() == kMaxTokens) {
+        if (next == end) {
             kept = false;
             return;
         }
-        tokens->push_back(head | static_cast<std::uint32_t>(n) << 8 | (v & ((std::uint32_t{1} << n) - 1)) << 13);
+        *next++ = head | static_cast<std::uint32_t>(n) << 8 | (v & ((std::uint32_t{1} << n) - 1)) << 13;
     }
 };
 
@@ -508,8 +505,8 @@ bool sequential(const Context& ctx, const jpeg_scan_info& scan, Sink& sink) {
 
 }  // namespace
 
-DirectEngine::DirectEngine(const Source& source, int max_bits, Loop loop, VerboseLog* log)
-    : source_(source), max_bits_(max_bits), loop_(std::move(loop)), log_(log),
+DirectEngine::DirectEngine(const Source& source, int max_bits, Loop loop, VerboseLog* log, std::size_t max_tokens)
+    : source_(source), max_bits_(max_bits), loop_(std::move(loop)), log_(log), max_tokens_(max_tokens),
       max_coef_bits_(source.info->data_precision + 2) {
     huffman_tables(source, dc_tables_, ac_tables_, error_);
 }
@@ -521,7 +518,7 @@ std::size_t DirectEngine::memory_for(const Source& source, int max_bits, unsigne
     // block pointers and masks of one component
     const std::size_t plane = blocks * (sizeof(const JCOEF*) + bits * sizeof(std::uint64_t));
     // a piece's list of blocks, and its tokens: no more than kMaxTokens, nor 128 per block
-    const std::size_t piece = blocks * sizeof(std::uint32_t) + std::min(kMaxTokens, blocks * 128) * sizeof(std::uint32_t);
+    const std::size_t piece = blocks * sizeof(std::uint32_t) + std::min(kMaxTokens, (blocks + 1) * 128) * sizeof(std::uint32_t);
     // the sizes of every AC scan and the search's memo, for each component and once more
     const std::size_t sizes = (source.planes.size() + 1) * DCTSIZE2 * DCTSIZE2 * (2 * bits - 1) * 48;
     return plane + std::size_t{std::max(pieces, 1U)} * piece + sizes;
@@ -558,16 +555,18 @@ bool DirectEngine::size_ac(const jpeg_scan_info& scan, std::span<const std::uint
                       scan.Ah ? plane_.of(scan.Al + 1) : nullptr,
                       ac_tables_[static_cast<std::size_t>(scan.component_index[0])],
                       max_coef_bits_};
-    tokens.clear();
+    const std::size_t room = std::min(max_tokens_, (busy.size() + 1) * 128);
+    if (tokens.size() < room) tokens.resize(room);
     Record record;
-    record.tokens = &tokens;
+    record.next = tokens.data();
+    record.end = tokens.data() + room;
     if (scan.Ah) ac_refine(walk, scan, record);
     else if (!ac_first(walk, scan, record)) return false;
     HuffCode code;
     if (!optimal_code(record.counts, code)) return false;
     std::uint64_t bytes = 0;
     if (record.kept) {
-        bytes = replay(tokens, code);
+        bytes = replay({tokens.data(), record.next}, code);
     } else {
         std::array<HuffCode, NUM_HUFF_TBLS> ac{};
         ac[static_cast<std::size_t>(walk.table)] = code;
@@ -700,6 +699,7 @@ bool DirectEngine::measure_group(int ss, int al, AcSizes& out, Scratch& scratch)
     scan.Ss = ss;
     scan.Al = al;
     for (int se = kMaxCoef; se >= ss; --se) {
+        loop_.check_stop();
         const std::uint64_t band = band_mask(ss, se);
         if (se < kMaxCoef) std::erase_if(busy, [&](std::uint32_t b) { return !(masks[b] & band); });
         scan.Se = se;
@@ -759,7 +759,6 @@ bool DirectEngine::measure_ac(int component, AcSizes& out) {
     parallel_for(loop_, pieces, [&](std::size_t piece) {
         Scratch scratch;
         for (std::size_t g = piece; g < groups; g += pieces) {
-            loop_.check_stop();
             const int ss = 1 + static_cast<int>(g / passes);
             const int al = static_cast<int>(g % passes);
             if (!measure_group(ss, al, out, scratch)) {

@@ -23,51 +23,51 @@ jobs:
           - asset_name: linux-x64-gcc
             runs_on: ubuntu-24.04
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: linux-x64-clang
             runs_on: ubuntu-24.04
             cmake_args: -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: linux-arm64
             runs_on: ubuntu-24.04-arm
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: linux-x86
             runs_on: ubuntu-24.04
             cmake_args: -DCMAKE_C_COMPILER=gcc -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_FLAGS=-m32 -DCMAKE_CXX_FLAGS=-m32
             install_deps: sudo apt-get update && sudo apt-get install -y g++-multilib
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: macos-x64
             runs_on: macos-15-intel
             cmake_args: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: macos-arm64
             runs_on: macos-15
             cmake_args: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
-            binary_path: build/jpegultrascan
+            binary_path: build/jpegultrascancpp
 
           - asset_name: windows-x64
             runs_on: windows-latest
             cmake_args: -A x64
             msvc_arch: x64
-            binary_path: build/Release/jpegultrascan.exe
+            binary_path: build/Release/jpegultrascancpp.exe
 
           - asset_name: windows-x86
             runs_on: windows-latest
             cmake_args: -A Win32
             msvc_arch: x64
-            binary_path: build/Release/jpegultrascan.exe
+            binary_path: build/Release/jpegultrascancpp.exe
 
           - asset_name: windows-arm64
             runs_on: windows-11-arm
             cmake_args: -A ARM64
             msvc_arch: arm64
-            binary_path: build/Release/jpegultrascan.exe
+            binary_path: build/Release/jpegultrascancpp.exe
 
     steps:
       - name: Checkout repository
@@ -160,10 +160,10 @@ jobs:
             set -e
             cmake -B build -DCMAKE_BUILD_TYPE=Release
             cmake --build build --config Release --parallel "$(sysctl -n hw.ncpu)"
-            ./build/jpegultrascan --help
-            ldd build/jpegultrascan
+            ./build/jpegultrascancpp --help
+            ldd build/jpegultrascancpp
             # freebsd's ldd starts with the binary's own name
-            if ldd build/jpegultrascan | tail -n +2 | grep -i jpeg; then
+            if ldd build/jpegultrascancpp | tail -n +2 | grep -i jpeg; then
               echo "libjpeg is linked dynamically"
               exit 1
             fi
@@ -172,7 +172,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: binary-${{ matrix.asset_name }}
-          path: build/jpegultrascan
+          path: build/jpegultrascancpp
           if-no-files-found: error
 
   # chisel links mozjpeg and defines JPEG::JPEG before adding this directory; the parent
@@ -195,7 +195,7 @@ jobs:
 
       # EXCLUDE_FROM_ALL keeps our targets out of the parent's Visual Studio solution
       - name: Build
-        run: cmake --build build-moz/jpegultrascancpp --config Release --target jpegultrascan --parallel
+        run: cmake --build build-moz/jpegultrascancpp --config Release --target jpegultrascancpp --parallel
 
   release:
     name: Publish release
@@ -231,16 +231,16 @@ jobs:
         run: |
           mkdir -p stage release
           for dir in artifacts/binary-*; do
-            name=jpegultrascan-${dir#artifacts/binary-}-$GITHUB_REF_NAME
+            name=jpegultrascancpp-${dir#artifacts/binary-}-$GITHUB_REF_NAME
             mkdir -p "stage/$name/licenses"
             cp LICENSE NOTICE "stage/$name/"
             cp -R licenses/libjpeg-turbo "stage/$name/licenses/"
-            if [ -f "$dir/jpegultrascan.exe" ]; then
-              cp "$dir/jpegultrascan.exe" "stage/$name/"
+            if [ -f "$dir/jpegultrascancpp.exe" ]; then
+              cp "$dir/jpegultrascancpp.exe" "stage/$name/"
               (cd stage && zip -qr "../release/$name.zip" "$name")
             else
-              cp "$dir/jpegultrascan" "stage/$name/"
-              chmod +x "stage/$name/jpegultrascan"
+              cp "$dir/jpegultrascancpp" "stage/$name/"
+              chmod +x "stage/$name/jpegultrascancpp"
               tar -czf "release/$name.tar.gz" -C stage "$name"
             fi
           done
@@ -253,6 +253,6 @@ jobs:
           prerelease=
           case "$GITHUB_REF_NAME" in *-*) prerelease=--prerelease ;; esac
           gh release create "$GITHUB_REF_NAME" $prerelease \
-            --title "jpegultrascan $GITHUB_REF_NAME" \
+            --title "jpegultrascancpp $GITHUB_REF_NAME" \
             --generate-notes \
             release/*

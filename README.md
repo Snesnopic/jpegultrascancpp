@@ -5,7 +5,7 @@ Kaluszka: it finds the progressive scan script that makes a JPEG smallest, tryin
 to split the coefficients into bands and bits of successive approximation. The coefficients
 never change, so the image stays exactly the same.
 
-Working name; meant to become a submodule of [chisel](https://github.com/Snesnopic/chisel).
+Meant to become a submodule of [chisel](https://github.com/Snesnopic/chisel).
 
 ## Status
 
@@ -23,8 +23,10 @@ Standalone, the build downloads and compiles libjpeg-turbo 3.2.0 as a static lib
 parent project already defines `JPEG::JPEG` (chisel does, with mozjpeg), that one is used
 instead: a binary can link only one libjpeg. mozjpeg is detected from its `jpeglib.h`, and its
 own scan search is switched off (`JCP_FASTEST`) before any encoding. mozjpeg 4.1.5 can't
-encode more than 64 scans (it overruns an array past that): the search then tries fewer bits,
-and if no script fits, the input is kept.
+encode more than 64 scans: `select_scan_parameters` in `jcmaster.c` records each scan's Al in
+`actual_Al[64]` (`jcmaster.h`) even with `JCP_FASTEST`, and overruns it past that. The search
+then tries fewer bits, and if no script fits, the input is kept. With a fixed mozjpeg, for
+example in a fork, it is enough to raise `kMaxScans` in `src/jpeg_io.hpp`.
 
 Options: `JPEGULTRASCAN_BUILD_CLI`, `JPEGULTRASCAN_MOZJPEG` (`AUTO`, `ON`, `OFF`).
 
@@ -33,7 +35,7 @@ Binaries for Linux, macOS, Windows and FreeBSD are built by the GitHub workflow;
 
 ## Command line
 
-    jpegultrascan [options] input.jpg output.jpg
+    jpegultrascancpp [options] input.jpg output.jpg
 
 `-b N` sets the most successive-approximation bits per band (by default as many as libjpeg
 allows, which never gives a bigger file than fewer; upstream's default is 3), `-t N` the threads

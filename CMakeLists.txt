@@ -46,10 +46,10 @@ set_target_properties(jpegultrascan_core PROPERTIES UNITY_BUILD OFF)
 add_library(jpegultrascan::core ALIAS jpegultrascan_core)
 
 if(JPEGULTRASCAN_BUILD_CLI)
-    add_executable(jpegultrascan src/main.cpp)
-    target_link_libraries(jpegultrascan PRIVATE jpegultrascan_core)
-    target_include_directories(jpegultrascan PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
-    target_compile_definitions(jpegultrascan PRIVATE JPEGULTRASCAN_VERSION="${PROJECT_VERSION}")
+    add_executable(jpegultrascancpp src/main.cpp)
+    target_link_libraries(jpegultrascancpp PRIVATE jpegultrascan_core)
+    target_include_directories(jpegultrascancpp PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_compile_definitions(jpegultrascancpp PRIVATE JPEGULTRASCAN_VERSION="${PROJECT_VERSION}")
 endif()
 
 # the tests aren't part of the repository; a checkout that has them builds them
