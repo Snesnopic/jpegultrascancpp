@@ -24,63 +24,54 @@ SearchOptions search_options_for(const jpeg_decompress_struct& info, const Optio
 }
 
 bool Kept::measure_ac(int component, AcSizes& out) {
-    if (bits_ == max_bits_) {
-        if (!source_.measure_ac(component, out)) return false;
-        ac_.insert_or_assign(component, out);
+    if (const auto it = ac_.find(component); it != ac_.end()) {
+        out = it->second;
         return true;
     }
-    const AcSizes& all = ac_.at(component);
-    for (int ss = 1; ss <= kMaxCoef; ++ss) {
-        for (int se = ss; se <= kMaxCoef; ++se) {
-            for (int al = 0; al <= bits_; ++al) out.at(ss, se, 0, al) = all.get(ss, se, 0, al);
-            for (int ah = 1; ah <= bits_; ++ah) out.at(ss, se, ah, ah - 1) = all.get(ss, se, ah, ah - 1);
-        }
-    }
+    if (!source_.measure_ac(component, out)) return false;
+    ac_.emplace(component, out);
     return true;
 }
 
 bool Kept::measure_dc(const std::vector<int>& components, std::vector<std::uint64_t>& out) {
-    if (bits_ == max_bits_) {
-        if (!source_.measure_dc(components, out)) return false;
-        dc_.insert_or_assign(components, out);
+    if (const auto it = dc_.find(components); it != dc_.end()) {
+        out = it->second;
         return true;
     }
-    const std::vector<std::uint64_t>& all = dc_.at(components);
-    const auto at = [](int bits, int ah, int al) { return static_cast<std::size_t>(pass_index(bits, ah, al)); };
-    for (int al = 0; al <= bits_; ++al) out[at(bits_, 0, al)] = all[at(max_bits_, 0, al)];
-    for (int ah = 1; ah <= bits_; ++ah) out[at(bits_, ah, ah - 1)] = all[at(max_bits_, ah, ah - 1)];
+    if (!source_.measure_dc(components, out)) return false;
+    dc_.emplace(components, out);
     return true;
 }
 
 bool Kept::measure_sequential(const std::vector<std::vector<int>>& parts, std::vector<std::uint64_t>& out) {
-    if (bits_ == max_bits_) {
-        if (!source_.measure_sequential(parts, out)) return false;
-        sequential_.insert_or_assign(parts, out);
+    if (const auto it = sequential_.find(parts); it != sequential_.end()) {
+        out = it->second;
         return true;
     }
-    out = sequential_.at(parts);
+    if (!source_.measure_sequential(parts, out)) return false;
+    sequential_.emplace(parts, out);
     return true;
 }
 
 std::optional<SearchResult> search_within(SizeSource& source, int num_components, const SearchOptions& options,
                                           std::size_t max_scans, std::string& error) {
-    Kept kept(source, options.max_bits);
+    Kept kept(source);
     auto found = search(kept, num_components, options, error);
-    for (int bits = options.max_bits - 1; found && found->scans.size() > max_scans && bits >= 0; --bits) {
-        kept.limit(bits);
-        SearchOptions fewer = options;
-        fewer.max_bits = bits;
-        fewer.log = nullptr;
-        found = search(kept, num_components, fewer, error);
-    }
-    return found;
+    if (!found || found->scans.size() <= max_scans) return found;
+    SearchOptions fitting = options;
+    fitting.log = nullptr;
+    std::string why;
+    const auto fits = search_fitting(kept, num_components, fitting, max_scans, why);
+    return fits ? fits : found;
 }
 
 ScriptResult find_best_script(const Source& source, const Options& options, VerboseLog* log, std::size_t max_scans) {
     ScriptResult result;
     try {
-        const SearchOptions search_options = search_options_for(*source.info, options, log);
-        DirectEngine engine(source, search_options.max_bits, loop_for(options), log);
+        const Loop loop = loop_for(options);
+        SearchOptions search_options = search_options_for(*source.info, options, log);
+        search_options.check_stop = [&loop] { loop.check_stop(); };
+        DirectEngine engine(source, search_options.max_bits, loop, log);
         if (!engine.ok()) {
             result.status = Status::Unsupported;
             result.error = engine.error();

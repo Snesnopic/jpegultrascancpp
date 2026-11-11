@@ -43,8 +43,8 @@ enum class Status {
     Optimized,    // optimize: the output is smaller; find_best_script: a script was found
     NotSmaller,   // optimize: re-encoding didn't make the image smaller
     Unsupported,  // libjpeg can't re-encode the image progressively, it would take more than
-                  // memory_limit, or the linked libjpeg is mozjpeg and even the script with no
-                  // successive approximation has more than 64 scans (it can't encode them)
+                  // memory_limit, or the linked libjpeg is mozjpeg and no script of at most 64
+                  // scans was found (it can't encode more)
     Interrupted,  // stop_requested returned true
     Error,
 };

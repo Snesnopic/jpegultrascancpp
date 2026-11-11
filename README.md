@@ -25,8 +25,8 @@ instead: a binary can link only one libjpeg. mozjpeg is detected from its `jpegl
 own scan search is switched off (`JCP_FASTEST`) before any encoding. mozjpeg 4.1.5 can't
 encode more than 64 scans: `select_scan_parameters` in `jcmaster.c` records each scan's Al in
 `actual_Al[64]` (`jcmaster.h`) even with `JCP_FASTEST`, and overruns it past that. The search
-then tries fewer bits, and if no script fits, the input is kept. With a fixed mozjpeg, for
-example in a fork, it is enough to raise `kMaxScans` in `src/jpeg_io.hpp`.
+then looks for the smallest script of at most 64 scans, on the sizes already measured. With a
+fixed mozjpeg, for example in a fork, it is enough to raise `kMaxScans` in `src/jpeg_io.hpp`.
 
 Options: `JPEGULTRASCAN_BUILD_CLI`, `JPEGULTRASCAN_MOZJPEG` (`AUTO`, `ON`, `OFF`).
 
@@ -64,8 +64,8 @@ own when the host passes its loop as `Options::parallel_for`, which then runs in
 of the search on its threads, in any order or all on the calling thread, with the same result.
 `Options::stop_requested` is polled between pieces; exceptions the host's loop throws go back to
 the host. `Options::memory_limit` makes an image that would need more `Unsupported` before
-anything big is allocated. With mozjpeg, a script beyond its 64 scans is searched again with
-fewer bits, on the sizes already measured, until one fits.
+anything big is allocated. With mozjpeg, a script beyond its 64 scans is followed by a second
+search, on the sizes already measured, for the smallest script of at most 64 scans.
 
 Link `jpegultrascan::core`.
 

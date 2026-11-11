@@ -521,7 +521,10 @@ std::size_t DirectEngine::memory_for(const Source& source, int max_bits, unsigne
     const std::size_t piece = blocks * sizeof(std::uint32_t) + std::min(kMaxTokens, (blocks + 1) * 128) * sizeof(std::uint32_t);
     // the sizes of every AC scan and the search's memo, for each component and once more
     const std::size_t sizes = (source.planes.size() + 1) * DCTSIZE2 * DCTSIZE2 * (2 * bits - 1) * 48;
-    return plane + std::size_t{std::max(pieces, 1U)} * piece + sizes;
+    // the search for a script within mozjpeg's limit, when the first one is beyond it
+    std::size_t fitting = 0;
+    if constexpr (kMaxScans != SIZE_MAX) fitting = fitting_memory(static_cast<int>(source.planes.size()), max_bits, kMaxScans);
+    return plane + std::size_t{std::max(pieces, 1U)} * piece + sizes + fitting;
 }
 
 void DirectEngine::build_plane(int component) {

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <functional>
 #include <optional>
 #include <string>
 #include <unordered_set>
@@ -78,6 +79,7 @@ struct SearchOptions {
     int max_bits = 3;
     DcMode dc = DcMode::Upstream;
     VerboseLog* log = nullptr;
+    std::function<void()> check_stop;  // called between the steps of search_fitting; throws to stop it
 };
 
 struct SearchResult {
@@ -87,5 +89,14 @@ struct SearchResult {
 
 std::optional<SearchResult> search(SizeSource& source, int num_components, const SearchOptions& options,
                                    std::string& error);
+
+// the smallest script of at most max_scans scans among those search looks at, on the same
+// sizes; nullopt when not even the fewest scans fit. its time grows with max_scans squared,
+// so it is meant for small limits such as mozjpeg's 64
+std::optional<SearchResult> search_fitting(SizeSource& source, int num_components, const SearchOptions& options,
+                                           std::size_t max_scans, std::string& error);
+
+// the most search_fitting allocates
+std::size_t fitting_memory(int num_components, int max_bits, std::size_t max_scans);
 
 }  // namespace jpegultrascan::detail
